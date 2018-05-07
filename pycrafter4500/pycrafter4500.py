@@ -6,6 +6,7 @@ from math import floor
 
 import usb.core
 import usb.util
+from bokeh.colors import green
 from usb.core import USBError
 
 """
@@ -143,7 +144,7 @@ class dlpc350(object):
             # append empty data to fill buffer
             for i in range(64 - len(buffer)):
                 buffer.append(0x00)
-
+            # print(buffer)
             self.dlpc.write(1, buffer)
 
         # else, keep filling buffer and pushing until data all sent
@@ -171,8 +172,9 @@ class dlpc350(object):
                 self.dlpc.write(1, buffer)
 
         # wait a bit between commands
-        # time.sleep(0.02)
-        # time.sleep(0.02)
+        # dont know wether nessecary
+        time.sleep(0.02)
+        time.sleep(0.02)
 
         # done writing, read feedback from dlpc
         try:
@@ -180,14 +182,16 @@ class dlpc350(object):
         except USBError as e:
             print('USB Error:', e)
 
-        time.sleep(0.02)
+        # time.sleep(0.02)
 
     def read_reply(self):
         """
         Reads in reply
+        First entry is repeat of mode: r sends 0xc0, recevies 0xe0; w sends 0x40, recieves 0x60, so always +32
         """
         for i in self.ans:
             print(hex(i))
+
 
     def set_power_mode(self, do_standby=False):
         """
@@ -269,6 +273,65 @@ class dlpc350(object):
             action = actions.index(action)
 
         self.command('w', 0x00, 0x1a, 0x24, [action])
+
+    def pattern_display_LUT_data(self, image_idx):
+        '''
+
+        :param image_idx:
+        '''
+        self.command('w', 0x00, 0x1a, 0x34, [image_idx])
+
+    def set_led_current(self, red_c, green_c, blue_c):
+        '''
+        Current control: 0x1a,0x01
+        current polarity: 0x1a,0x05
+        :param red_c:
+        :param green_c:
+        :param blue_c:
+        :return:
+        '''
+        # self.command("w", 0x00, 0x1a, 0x05, bits_to_bytes(conv_len(False, 2)) )  #set reg polarity, so high numbers indicate high output
+        red = conv_len(red_c, 8)
+        green = conv_len(green_c, 8)
+        blue = conv_len(blue_c, 8)
+        payload = red + green + blue
+        payload = bits_to_bytes(payload)
+        print("Setting rgb intensity to %i, %i, %i" %(red_c, green_c, blue_c))
+        self.command("w", 0x00, 0x0b, 0x01, payload)
+
+    def enable_leds(self, red, green, blue):
+        '''
+        @brief: should enable/disable single leds
+        :param red: Bool for red led
+        :param green: Bool for green led
+        :param blue: Bool for blue led
+        '''
+        red = conv_len(int(red), 1)
+        green = conv_len(int(green), 1)
+        blue = conv_len(int(blue), 1)
+        addedZeros = conv_len(0, 5)
+        payload = red + green + blue #+ addedZeros
+        # print(payload)
+        payload = bits_to_bytes(payload)
+        # print(payload)
+        self.command("w", 0x00, 0x0a, 0x07, payload)
+
+    def internal_test_patterns(self, name_test_pattern):
+        '''
+        select_pattern: cmd2: 0x12, cmd3: 0x03
+        select_pattern_input: 0x1a, 0x00
+        :param name_test_pattern:
+        :return:
+        '''
+        patts = ['solid field',"horizontal ramp", "vertical ramp", "horizontal lines", "diagonal lines", "vertical lines", "grid",
+                 "checkerboard", "rgb bar", "color bar", "step bar"]
+        if name_test_pattern.lower() in patts:
+            cmd = patts.index(name_test_pattern)
+            self.command("w", 0x00, 0x12, 0x03, [cmd])  #prepare test pattern
+            self.command("w", 0x00, 0x1a, 0x00, [1])    #display test pattern
+            return 1
+        else:
+            return 0
 
     def set_exposure_frame_period(self,
                                   exposure_period,
@@ -452,7 +515,8 @@ def pattern_mode(input_mode='pattern',
         lcr.set_display_mode(input_mode)
 
         # 2: pattern display from external video
-        lcr.set_pattern_input_source(input_type)
+        # lcr.set_pattern_input_source(input_type)
+        lcr.set_pattern_input_source("flash")
 
         # 3: setup number of luts
         lcr.set_pattern_config(num_lut_entries=num_pats,
@@ -483,6 +547,7 @@ def pattern_mode(input_mode='pattern',
                 trig_type = 3
 
             lcr.mailbox_set_address(i)
+            lcr.pattern_display_LUT_data(i)
             lcr.send_pattern_lut(trig_type=trig_type,
                                  pat_num=bit_map[bit_depth][i],
                                  bit_depth=bit_depth,
@@ -523,3 +588,4 @@ def power_up():
     """
     with connect_usb() as lcr:
         lcr.set_power_mode(do_standby=False)
+
